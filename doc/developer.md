@@ -20,4 +20,37 @@
  - `make check_tidy` tests for bugs in the source code via [`clang-tidy`](https://clang.llvm.org/extra/clang-tidy/).
     Use `make tidy` to print a bug report.
  - `make check_all` runs all the above tests and is useful for testing code before submitting a pull request.
- 
+
+## Agave
+
+Steps to set up COATi `only-gotoh` branch on the ASU Agave server:
+
+```
+module load cmake/latest
+module load boost/1.61.0-gcc-9.2.0
+
+git clone https://github.com/jgarciamesa/coati.git --branch only-gotoh
+cd coati/build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+vim CMakeCache.txt #go to Eigen3_DIR:PATH=Eigen3_DIR-NOTFOUND
+#change to Eigen3_DIR:PATH=/packages/7x/eigen/3.3.7-gcc-stock/share/eigen3/cmake/
+cmake ..
+make -j4
+cd ../..
+```
+
+Example input files can be found in `fasta` directory. Sample runs:
+
+```
+#Align file ENSG00000004534.fasta with m-coati model and output in PHY format
+./build/src/coati-alignpair fasta/ENSG00000004534.fasta
+
+# Align file ENSG00000003249.fasta with m-ecm model and output in fasta format
+./build/src/coati-alignpair fasta/ENSG00000003249.fasta -m m-ecm -o ENSG00000003249.fasta
+
+# Align file ENSG00000005175.fasta with ecm model, PHY output, and save weight to w.out
+./build/src/coati-alignpair fasta/ENSG00000005175.fasta -m ecm -w w.out
+
+# Calculate the score of the second alignment with m-coati model
+./build/src/coati-alignpair fasta/ENSG00000003249.fasta -s
+```
