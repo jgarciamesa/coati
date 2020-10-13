@@ -91,39 +91,8 @@ void mg94_p(Matrix64f& P) {
 }
 
 
-/* Create Muse and Gaut codon model FST */
-void mg94(VectorFst<StdArc>& mut_fst) {
-	Matrix64f P;
-	mg94_p(P);
-
-	// Add state 0 and make it the start state
-	VectorFst<StdArc> mg94;
-	mg94.AddState();
-	mg94.SetStart(0);
-
-	// Creat FST
-	int r = 1;
-	for(uint8_t i=0; i<64; i++) {
-		for(uint8_t j=0; j<64; j++) {
-			add_arc(mg94, 0, r, ((i & 48) >> 4) + 1, ((j & 48) >> 4) + 1, P(i,j));
-			add_arc(mg94, r, r+1, ((i & 12) >> 2) + 1, ((j & 12) >> 2) + 1);
-			add_arc(mg94, r+1, 0, (i & 3) + 1, (j & 3) + 1);
-			r = r+2;
-		}
-	}
-
-	// Set final state & optimize
-	mg94.SetFinal(0, 0.0);
-	mut_fst = optimize(mg94);
-}
-
-/* Create marginal Muse and Gaut codon model P matrix*/
-void mg94_marginal_p(Eigen::Tensor<double, 3>& p, Matrix64f& P) {
-
-	if(P.isZero()) {
-		mg94_p(P);
-	}
-
+/* Create marginal P matrix*/
+void marginalize_p(Eigen::Tensor<double, 3>& p, Matrix64f& P) {
 	double marg;
 
 	for(int i=0; i<64; i++) {
@@ -138,146 +107,6 @@ void mg94_marginal_p(Eigen::Tensor<double, 3>& p, Matrix64f& P) {
 		}
 	}
 
-}
-
-/* Create dna marginal Muse and Gaut codon model FST*/
-void dna(VectorFst<StdArc>& mut_fst) {
-	Matrix64f P;
-	mg94_p(P);
-
-	// Add state 0 and make it the start state
-	VectorFst<StdArc> dna;
-	dna.AddState();
-	dna.SetStart(0);
-
-	Matrix4f dna_p = Matrix4f::Zero();
-	double rowsum;
-
-	for(uint8_t i=0; i<64; i++) {		// for each codon
-		rowsum = 0.0;
-		for(int j=0; j<3; j++) {		// for each position in a codon
-			for(int k=0; k<4; k++) {		// for each nucleotide (from)
-				for(int l=0; l<4; l++) {		// for each nucleotide (to)
-					for(int m=0; m<64; m++) {		// sum over all codons
-						dna_p(k,l) += (((m & (uint8_t)(48/pow(4,j))) >> (4-2*j)) == l ? \
-							((i & (uint8_t)(48/pow(4,j))) >> (4-2*j)) == k ? P(i,m) : 0.0 : 0.0);
-					}
-				}
-			}
-		}
-
-	}
-
-	for(int i=0; i<4; i++) {
-		dna_p.row(i) /= dna_p.row(i).sum();
-		for(int j=0; j<4; j++) {
-			add_arc(dna, 0, 0, i+1, j+1, dna_p(i,j));
-		}
-	}
-
-	// Set final state & optimize
-	dna.SetFinal(0,0.0);
-	mut_fst = optimize(dna);
-}
-
-/* Create FST that maps nucleotide to AA position */
-void nuc2pos(VectorFst<StdArc> &n2p) {
-	// Add state 0 and make it the start state
-	n2p.AddState();
-	n2p.SetStart(0);
-
-	int s = 1;		// variable to keep track of states
-	int c = 101;	// variable to keep track of codons
-	// TODO: find more elegant way than 3 nested for loops
-	for(int i=1; i<5; i++) {
-		for(int j=1; j<5; j++) {
-			for(int k=1; k<5; k++) {
-				add_arc(n2p, 0, 	s, 		i, c);
-				add_arc(n2p, s, 	s+1, 	j, c+1);
-				add_arc(n2p, s+1, 	0,		k, c+2);
-				s += 2;
-				c += 3;
-			}
-		}
-	}
-
-	n2p.SetFinal(0, 0.0);
-}
-
-/* Marginal model FST */
-void marg_mut(VectorFst<StdArc>& mut_fst, VectorFst<StdArc> marg_pos) {
-
-	VectorFst<StdArc> nuc2pos_raw;
-	nuc2pos(nuc2pos_raw);
-
-	// optimize raw FSTs
-	VectorFst<StdArc> nuc2cod_fst, cod2pos_fst, marg_pos_fst, nuc2pos_fst;
-	marg_pos_fst = optimize(marg_pos);
-	nuc2pos_fst = optimize(nuc2pos_raw);
-
-	// sort FSTs
-	VectorFst<StdArc> nuc2cod_sort, cod2pos_sort, marg_pos_sort, nuc2pos_sort;
-	marg_pos_sort = ArcSortFst<StdArc, ILabelCompare<StdArc>>(marg_pos_fst, ILabelCompare<StdArc>());
-	nuc2pos_sort = ArcSortFst<StdArc, OLabelCompare<StdArc>>(nuc2pos_fst, OLabelCompare<StdArc>());
-
-	// compose FSTs
-	ComposeFst<StdArc> marg_mut = ComposeFst<StdArc>(nuc2pos_sort, marg_pos_sort);
-
-	// optimize final marginalized mutation FST
-	mut_fst = optimize(VectorFst<StdArc>(marg_mut));
-}
-
-/* Create affine gap indel model FST*/
-void indel(VectorFst<StdArc>& indel_model, string model) {
-	double deletion = 0.001, insertion = 0.001;
-	double deletion_ext = 1.0-1.0/6.0, insertion_ext = 1.0-1.0/6.0;
-	double nuc_freqs[2][4] = {{0.308, 0.185, 0.199, 0.308},
-		{0.2676350,0.2357727,0.2539630,0.2426323}};
-	int m = model.compare("ecm") == 0 ? 1 : 0;
-
-
-	VectorFst<StdArc> indel_fst;
-
-	// Add state 0 and make it the start state
-	indel_fst.AddState();
-	indel_fst.SetStart(0);
-
-	// Insertion
-	add_arc(indel_fst, 0, 1, 0, 0, insertion);	// 0 as ilabel/olabel is <eps>
-	add_arc(indel_fst, 0, 3, 0, 0, 1.0-insertion);
-
-	for(int i=0; i<4; i++) {
-		add_arc(indel_fst, 1, 2, 0, i+1, nuc_freqs[m][i]);
-	}
-
-	add_arc(indel_fst, 1, 2, 0, 5);	// 5 as ilabel/olabel is N
-	add_arc(indel_fst, 2, 1, 0, 0, insertion_ext);
-	add_arc(indel_fst, 2, 3, 0, 0, 1.0-insertion_ext);
-
-	// Deletion
-	add_arc(indel_fst, 3, 4, 0, 0, deletion);
-	add_arc(indel_fst, 3, 6, 0, 0, 1.0-deletion);
-
-	for(int i=0; i<4; i++) {
-	    add_arc(indel_fst, 4, 5, i+1);
-	}
-
-	add_arc(indel_fst, 4, 7);
-
-	add_arc(indel_fst, 5, 4, 0, 0, deletion_ext);
-	add_arc(indel_fst, 5, 6, 0, 0, 1.0-deletion_ext);
-
-	// Matches
-	for(int i=0; i<4; i++) {
-	    add_arc(indel_fst, 6, 0, i+1, i+1);
-	    add_arc(indel_fst, 6, 0, i+1, 5);
-	}
-
-	add_arc(indel_fst, 6, 7);
-
-	// Set final state & optimize
-	indel_fst.SetFinal(7,0.0);
-	indel_model = optimize(indel_fst);
 }
 
 /* ECM unrestricted exchangeabilities, Kosiol et al. 2007, supplemental data [61x61]
@@ -426,68 +255,13 @@ void ecm_p(Matrix64f& P) {
 	P = Q.exp();
 }
 
-/* Empirical Codon Model (Kosiol et al. 2007) FST */
-void ecm(VectorFst<StdArc>& mut_fst) {
-	Matrix64f P;
-	ecm_p(P);
-
-	// Add state 0 and make it the start state
-	VectorFst<StdArc> ecm;
-	ecm.AddState();
-	ecm.SetStart(0);
-
-	int r = 1;
-	for(uint8_t i=0; i<64; i++) {
-		for(uint8_t j=0; j<64; j++) {
-			add_arc(ecm, 0, r, ((i & 48) >> 4) + 1, ((j & 48) >> 4) + 1, P(i,j));
-			add_arc(ecm, r, r+1, ((i & 12) >> 2) + 1, ((j & 12) >> 2) + 1);
-			add_arc(ecm, r+1, 0, (i & 3) + 1, (j & 3) + 1);
-			r = r+2;
-		}
-	}
-
-	// Set final state
-	ecm.SetFinal(0, 0.0);
-	mut_fst = optimize(ecm);
-}
-
-/* Marginal Empirical Codon Model */
-void ecm_marginal(VectorFst<StdArc>& mut_fst) {
-	VectorFst<StdArc> fst;
-	fst.AddState();
-	fst.SetStart(0);
-
-	// get Empirical Codon Model P matrix
-	Matrix64f P;
-	ecm_p(P);
-
-	int c = 101; // first codon_pos (AAA1)
-	double m;
-
-	// for loop extravaganza
-	for(uint8_t i=0; i<64; i++) {	// for each codon
-		for(int j=0; j<3; j++) {	// for each position in a codon
-			for(uint8_t k=0; k<4; k++) {	// for each possible nucleotide
-				m = 0.0;
-				for(int l=0; l<64; l++) {
-					m += ((((l & (uint8_t)(48/pow(4,j))) >> (4-2*j)) == k) ? P(i,l) : 0.0);
-				}
-				add_arc(fst, 0, 0, c, k+1, m);
-			}
-			c++;
-		}
-	}
-	fst.SetFinal(0,0.0);
-	marg_mut(mut_fst, fst);
-}
-
-/* Dynamic Programming implementation of Marginal MG94 model*/
-vector<string> mg94_marginal(vector<string> sequences, float& w, Matrix64f& P_m) {
+/* Dynamic Programming implementation of Gotoh's algorithm for 64x3x4 P matrix*/
+vector<string> gotoh_marginal(vector<string> sequences, float& w, Matrix64f& P_m) {
 
 	// P matrix for marginal Muse and Gaut codon model
 	Eigen::Tensor<double, 3> p(64,3,4);
 
-	mg94_marginal_p(p, P_m);
+	marginalize_p(p, P_m);
 
 	string seq_a = sequences[0];
 	string seq_b = sequences[1];
@@ -504,7 +278,6 @@ vector<string> mg94_marginal(vector<string> sequences, float& w, Matrix64f& P_m)
 	Eigen::MatrixXf D = Eigen::MatrixXf::Ones(m+1,n+1);
 	Eigen::MatrixXf P = Eigen::MatrixXf::Ones(m+1,n+1);
 	Eigen::MatrixXf Q = Eigen::MatrixXf::Ones(m+1,n+1);
-
 	D = D * std::numeric_limits<float>::max();
 	P = D;
 	Q = D;
@@ -526,7 +299,6 @@ vector<string> mg94_marginal(vector<string> sequences, float& w, Matrix64f& P_m)
 	nuc_freqs << 0.308, 0.185, 0.199, 0.308, 0.25;
 
 	// DP and backtracking matrices initialization
-
 	// fill first values on D that are independent
 	D(0,0) = 0.0;
 	Bd(0,0) = 0;
@@ -621,7 +393,141 @@ vector<string> mg94_marginal(vector<string> sequences, float& w, Matrix64f& P_m)
 	return backtracking(Bd, Bp, Bq, seq_a, seq_b);
 }
 
-/* Return value from marginal MG94 model p matrix for a given transition */
+/* Dynamic Programming implementation of Gotoh's algorithm */
+vector<string> gotoh(vector<string> sequences, float& w, Matrix64f& p) {
+
+	string seq_a = sequences[0];
+	string seq_b = sequences[1];
+	int m = sequences[0].length();
+	int n = sequences[1].length();
+
+	// ensure that length of first sequence (reference) is multiple of 3
+	if(m%3 != 0) {
+		cout << "Reference coding sequence length must be a multiple of 3 (" << m << "). Exiting!" << endl;
+		exit(EXIT_FAILURE);
+	}
+
+	// DP matrices for match/mismatch (D), insertion (P), and deletion (Q)
+	Eigen::MatrixXf D = Eigen::MatrixXf::Ones(m+1,n+1);
+	Eigen::MatrixXf P = Eigen::MatrixXf::Ones(m+1,n+1);
+	Eigen::MatrixXf Q = Eigen::MatrixXf::Ones(m+1,n+1);
+	D = D * std::numeric_limits<float>::max();
+	P = D;
+	Q = D;
+
+	// backtracking info matrices for match/mismatch (Bd), insert (Bp), and deletion (Bq)
+	Eigen::MatrixXd Bd = Eigen::MatrixXd::Ones(m+1,n+1);
+	Eigen::MatrixXd Bp = Eigen::MatrixXd::Ones(m+1,n+1);
+	Eigen::MatrixXd Bq = Eigen::MatrixXd::Ones(m+1,n+1);
+	Bd = Bd * (-1);
+	Bp = Bd;
+	Bq = Bd;
+
+	double insertion = 0.001;
+	double deletion = 0.001;
+	double insertion_ext = 1.0-(1.0/6.0);
+	double deletion_ext = 1.0-(1.0/6.0);
+
+	Vector5d nuc_freqs;
+	nuc_freqs << 0.308, 0.185, 0.199, 0.308, 0.25;
+
+	// DP and backtracking matrices initialization
+	// fill first values on D that are independent
+	D(0,0) = 0.0;
+	Bd(0,0) = 0;
+	D(0,1) = -log(insertion) - log(nuc_freqs[nt4_table[seq_b[0]]]) -log(1.0-insertion_ext);
+	P(0,1) = -log(insertion) - log(nuc_freqs[nt4_table[seq_b[0]]]) -log(1.0-insertion_ext);
+	Bd(0,1) = 1;
+	Bp(0,1) = 2;
+	D(1,0) = -log(1.0 - insertion) - log(deletion) -log(1.0 - deletion_ext);
+	Q(1,0) = -log(1.0 - insertion) - log(deletion) -log(1.0 - deletion_ext);
+	Bd(1,0) = 2;
+	Bq(1,0) = 2;
+
+	// fill first row of D
+	if(n+1>=2) {
+		for(int j=2; j<n+1; j++) {
+			D(0,j) = D(0,j-1) - log(insertion_ext) - log(nuc_freqs[nt4_table[seq_b[j-1]]]);
+			P(0,j) = P(0,j-1) - log(insertion_ext) - log(nuc_freqs[nt4_table[seq_b[j-1]]]);
+			Bd(0,j) = 1;
+			Bp(0,j) = 1;
+		}
+	}
+
+	// fill first column of D
+	if(m+1>=2) {
+		for(int i=2; i<m+1; i++) {
+			D(i,0) = D(i-1, 0) - log(deletion_ext);
+			Q(i,0) = Q(i-1, 0) - log(deletion_ext);
+			Bd(i,0) = 2;
+			Bq(i,0) = 1;
+		}
+	}
+
+	string codon1, codon2;
+	double p1,p2,q1,q2,d,argmin;
+
+	for(int i=1; i<m+1; i++) {
+		codon1 = seq_a.substr((((i-1)/3)*3),3); // current codon
+		for(int j=1; j<n+1; j++) {
+			codon2 = seq_b.substr((((j-1)/3)*3),3);
+			// insertion
+			p1 = P(i,j-1) -log(insertion_ext) -log(nuc_freqs[nt4_table[seq_b[j-1]]]);
+			p2 = Bd(i,j-1) == 0 ? D(i,j-1) -log(insertion) -
+				log(nuc_freqs[nt4_table[seq_b[j-1]]]) -log(1.0-insertion_ext) :
+				Bd(i,j-1) == 1 ? D(i,j-1) -log(insertion_ext) -log(nuc_freqs[nt4_table[seq_b[j-1]]])
+				: numeric_limits<double>::max();
+			P(i,j) = min(p1,p2);
+			Bp(i,j) = p1 < p2 ? 1 : 2; // 1 is insertion extension, 2 is insertion opening
+
+			// deletion
+			q1 = Q(i-1,j) -log(deletion_ext);
+			q2 = Bd(i-1,j) == 0 ? D(i-1,j) -log(1.0 - insertion) -log(deletion) -log(1.0-deletion_ext) :
+				Bd(i-1,j) == 1 ? D(i-1,j) -log(1.0 - deletion_ext) -log(deletion) :
+				D(i-1,j) -log(deletion_ext);
+			Q(i,j) = min(q1,q2);
+			Bq(i,j) = q1 < q2 ? 1 : 2; // 1 is deletion extension, 2 is deletion opening
+
+			// match/mismatch
+			if(Bd(i-1,j-1) == 0) {
+				d = D(i-1,j-1) -log(1.0 - insertion) -log(1.0 - deletion) -
+					log(transition(codon1,codon2,p));
+			} else if(Bd(i-1,j-1) == 1) {
+				d = D(i-1,j-1) -log(1.0 - deletion) -log(transition(codon1,codon2,p));
+			} else {
+				d = D(i-1,j-1) -log(transition(codon1,codon2,p));
+			}
+
+			// D[i,j] = highest weight between insertion, deletion, and match/mismatch
+			//	in this case, lowest (-log(weight)) value
+			if(d < P(i,j)) {
+				if(d < Q(i,j)) {
+					D(i,j) = d;
+					Bd(i,j) = 0;
+				} else {
+					D(i,j) = Q(i,j);
+					Bd(i,j) = 2;
+				}
+			} else {
+				if(P(i,j) < Q(i,j)) {
+					D(i,j) = P(i,j);
+					Bd(i,j) = 1;
+				} else {
+					D(i,j) = Q(i,j);
+					Bd(i,j) = 2;
+				}
+			}
+
+		}
+	}
+
+	w = D(m,n); // weight
+
+	// backtracking to obtain alignment
+	return backtracking(Bd, Bp, Bq, seq_a, seq_b);
+}
+
+/* Return value from marginal 64x3x4 p matrix for a given transition */
 double transition(string codon, int position, char nuc, Eigen::Tensor<double, 3>& p) {
 	position = position == 0 ? 2 : --position;
 
@@ -637,6 +543,11 @@ double transition(string codon, int position, char nuc, Eigen::Tensor<double, 3>
 	}
 }
 
+/* Return value from 64x64 p matrix for a given transition */
+double transition(string codon1, string codon2, Matrix64f& p) {
+	//TODO: think about handeling 'N' and seqs length not multiple of 3
+	return p(cod_int(codon1),cod_int(codon2));
+}
 /* Recover alignment given backtracking matrices for DP alignment */
 vector<string> backtracking(Eigen::MatrixXd Bd, Eigen::MatrixXd Bp, Eigen::MatrixXd Bq, string seqa, string seqb) {
 	int i = seqa.length();
@@ -697,9 +608,8 @@ float alignment_score(vector<string> alignment, Matrix64f& P) {
 	double insertion_ext = 1.0-(1.0/6.0);
 	double deletion_ext = 1.0-(1.0/6.0);
 
-	// P matrix for marginal Muse and Gaut codon model
 	Eigen::Tensor<double, 3> p(64,3,4);
-	mg94_marginal_p(p, P);
+	marginalize_p(p, P);
 
 	string seq1 = alignment[0];
 	boost::erase_all(seq1, "-");
@@ -763,68 +673,4 @@ float alignment_score(vector<string> alignment, Matrix64f& P) {
 	}
 
 	return(weight);
-}
-
-/* Model combining MG94's rates and ECM exchangeabilities.
-	Method folowing Miyazawa 2011.*/
-void hybrid_p(Matrix64f& P) {
-	Matrix64f R; // instantaneous substitution rate matrix
-	R.setZero();
-
-	Matrix64f M; // Muse and Gaut instantaneous rate matrix
-	mg94_q(M);
-
-	double nuc_pi[4] = {0.308,0.185,0.199,0.308};
-	double brlen = 0.0133;	// branch length (t)
-
-	Matrix64f mut_pi;
-	for(int i=0;i<64;i++) {
-		mut_pi(i) = nuc_pi[((i & 48) >> 4)] * nuc_pi[((i & 12) >> 2)] * nuc_pi[(i & 3)];
-	}
-
-	double c, rowSum = 0.0;
-
-	for(int i=0;i<64;i++){
-		rowSum = 0.0;
-		for(int j=0;j<64;j++){
-			if(i != j) {
-				R(i,j) = M(i,j)*ecm_pi(j)/mut_pi(j)*exp(s[i][j]);
-				rowSum += R(i,j);
-			}
-		}
-		R(i,i) = -rowSum;
-		c += rowSum;
-	}
-	// Normalize
-	R = R/c;
-
-	// P matrix
-	R = R * brlen;
-	P = R.exp();
-}
-
-/* Hybrid model FST */
-void hybrid(VectorFst<StdArc>& mut_fst) {
-	Matrix64f P;
-	hybrid_p(P);
-
-	// Add state 0 and make it the start state
-	VectorFst<StdArc> hybrid;
-	hybrid.AddState();
-	hybrid.SetStart(0);
-
-	// Creat FST
-	int r = 1;
-	for(uint8_t i=0; i<64; i++) {
-		for(uint8_t j=0; j<64; j++) {
-			add_arc(hybrid, 0, r, ((i & 48) >> 4) + 1, ((j & 48) >> 4) + 1, P(i,j));
-			add_arc(hybrid, r, r+1, ((i & 12) >> 2) + 1, ((j & 12) >> 2) + 1);
-			add_arc(hybrid, r+1, 0, (i & 3) + 1, (j & 3) + 1);
-			r = r+2;
-		}
-	}
-
-	// Set final state & optimize
-	hybrid.SetFinal(0, 0.0);
-	mut_fst = optimize(hybrid);
 }

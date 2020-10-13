@@ -25,11 +25,9 @@
 
 #include <iostream>
 #include <fstream>
-#include <fst/fstlib.h>
 #include <Eigen/Dense>
 #include <boost/algorithm/string.hpp>
 
-using namespace fst;
 using namespace std;
 
 /* Table for converting a nucleotide character to 2-bit encoding and for
@@ -55,16 +53,9 @@ const uint8_t nt4_table[256] = {
 
 typedef Eigen::Matrix<double, 64, 64>Matrix64f;
 
-int read_fasta(string file, vector<string>& seq_names,
-	vector<VectorFst<StdArc>>& fsts, vector<string>& sequences);
-void add_arc(VectorFst<StdArc> &fst, int src, int dest, int ilabel=0,\
-	int olabel=0, float weight=1.0);
-VectorFst<StdArc> optimize(VectorFst<StdArc> fst);
+int read_fasta(string file, vector<string>& seq_names,vector<string>& sequences);
 int write_fasta(vector<string> alignment, string output, vector<string> seq_names);
-int write_fasta(VectorFst<StdArc>& aln, string output, vector<string> seq_names);
 int write_phylip(vector<string> alignment, string output, vector<string> seq_names);
-int write_phylip(VectorFst<StdArc>& aln, string output, vector<string> seq_names);
-bool acceptor(std::string content, VectorFst<StdArc> &accept);
 int cod_distance(uint8_t cod1, uint8_t cod2);
 int cod_int(string codon);
 int parse_matrix_csv(string file, Matrix64f& P, double& br_len);

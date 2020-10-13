@@ -23,46 +23,34 @@
 #ifndef MUT_MODELS_H
 #define MUT_MODELS_H
 
-#include <fst/fstlib.h>
-// #include <Eigen/Dense>
-#include <iostream>
-#include <unordered_map>
-#include <map>
-#include <vector>
-#include <algorithm>
 #include <unsupported/Eigen/MatrixFunctions>
 #include <unsupported/Eigen/CXX11/Tensor>
 #include <coati/utils.hpp>
+#include <unordered_map>
+#include <algorithm>
+#include <iostream>
+#include <vector>
 #include <limits>
 #include <cmath>
-// #include <boost/algorithm/string.hpp>
+#include <map>
 
-// typedef Eigen::Matrix<double, 64, 64>Matrix64f;
 typedef Eigen::Matrix<double, 64, 1>Vector64f;
 typedef Eigen::Matrix<double, 4,  4>Matrix4f;
 typedef Eigen::Matrix<double, 5,  1>Vector5d;
 
-using namespace fst;
 using namespace std;
 
 void mg94_q(Matrix64f& Q);
 void mg94_p(Matrix64f& P);
-void mg94(VectorFst<StdArc>& mut_fst);
-void mg94_marginal_p(Eigen::Tensor<double, 3>& p, Matrix64f& P);
-vector<string> mg94_marginal(vector<string> sequences, float& w, Matrix64f& P);
-void nuc2pos(VectorFst<StdArc>& n2p);
-void marg_mut(VectorFst<StdArc>& mut_fst, VectorFst<StdArc> marg_pos);
-void dna(VectorFst<StdArc>& mut_fst);
-void indel(VectorFst<StdArc>& indel_model, string model);
-void ecm_p(Matrix64f& P);
-void ecm(VectorFst<StdArc>& mut_fst);
-void ecm_marginal(VectorFst<StdArc>& mut_fst);
+void marginalize_p(Eigen::Tensor<double, 3>& p, Matrix64f& P);
 void nts_ntv(uint8_t c1, uint8_t c2, int& nts, int& ntv);
 double k(uint8_t c1, uint8_t c2, int model=0);
+void ecm_p(Matrix64f& P);
+vector<string> gotoh_marginal(vector<string> sequences, float& w, Matrix64f& P_m);
+vector<string> gotoh(vector<string> sequences, float& w, Matrix64f& P);
 double transition(string codon, int position, char nucleotide, Eigen::Tensor<double, 3>& p);
+double transition(string codon, string codon2, Matrix64f& p);
 vector<string> backtracking(Eigen::MatrixXd Bd, Eigen::MatrixXd Bp, Eigen::MatrixXd Bq, string seqa, string seqb);
 float alignment_score(vector<string> alignment, Matrix64f& P);
-void hybrid_p(Matrix64f& P);
-void hybrid(VectorFst<StdArc>& mut_fst);
 
 #endif

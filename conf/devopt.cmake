@@ -205,10 +205,6 @@ else()
 endif(TARGET Eigen3::Eigen)
 
 #####################################################################
-# Find FST library
-find_package(FSTLIB REQUIRED)
-
-#####################################################################
 # Check All Target
 
 add_custom_target(check_test COMMAND "${CMAKE_CTEST_COMMAND}" DEPENDS pretest)

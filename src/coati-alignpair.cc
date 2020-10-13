@@ -20,15 +20,12 @@
 # SOFTWARE.
 */
 
-#include <fst/fstlib.h>
 #include <iostream>
-#include <boost/program_options.hpp>
 #include <fstream>
+#include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
 #include <coati/mut_models.hpp>
-#include <coati/align.hpp>
 
-using namespace fst;
 using namespace std;
 
 namespace po = boost::program_options;
@@ -44,10 +41,10 @@ int main(int argc, char *argv[]) {
 			("help,h","Display this message")
 			("fasta,f",po::value<string>(&fasta)->required(), "fasta file path")
 			("model,m",po::value<string>(&mut_model)->default_value("m-coati"),
-				"substitution model: coati, m-coati (default), dna, ecm, m-ecm")
+				"substitution model: m-coati (default), ecm, m-ecm")
 			("weight,w",po::value<string>(&weight_f), "Write alignment score to file")
 			("output,o",po::value<string>(&output), "Alignment output file")
-			("score,s", "Calculate alignment score using marginal COATi model")
+			("score,s", "Calculate alignment score given marginal model (m-coati by default)")
 			("rate,r", po::value<string>(&rate), "Substitution rate matrix (CSV)")
 		;
 
@@ -73,9 +70,7 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	// read input fasta file sequences as FSA (acceptors)
-	vector<string> seq_names, sequences;
-	vector<VectorFst<StdArc>> fsts;
+	// Read, if appropriate, user-specified branch length & codon Q matrix
 	Matrix64f P;
 
 	if(!rate.empty()) {
@@ -89,14 +84,17 @@ int main(int argc, char *argv[]) {
 		P.setZero();
 	}
 
-	if(read_fasta(fasta,seq_names, fsts, sequences) != 0) {
+	// read input fasta file sequences as FSA (acceptors)
+	vector<string> seq_names, sequences;
+	if(read_fasta(fasta,seq_names, sequences) != 0) {
 		cerr << "Error reading " << fasta << " file. Exiting!" << endl;
 		return EXIT_FAILURE;
-	} else if(seq_names.size() < 2 || seq_names.size() != fsts.size()) {
+	} else if(seq_names.size() < 2) {
 		cerr << "At least two sequences required. Exiting!" << endl;
 		return EXIT_FAILURE;
 	}
 
+	// Determine format of output alignment
 	if(output.empty()) { // if no output is specified save in current dir in PHYLIP format
 		output = boost::filesystem::path(fasta).stem().string()+".phy";
 	} else if(boost::filesystem::extension(output) != ".phy" &&
@@ -105,15 +103,43 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
+	// Initialize P matrix with corresponding model
 	if(mut_model.compare("m-coati") == 0) {
-		return mcoati(fasta, seq_names, sequences, score, weight_f, output, mut_model, P);
-	} else if(mut_model.compare("hybrid") == 0) {
-		hybrid_p(P);
-		return mcoati(fasta, seq_names, sequences, score, weight_f, output, mut_model, P);
-	} else if(mut_model.compare("m-ecm") == 0) {
+		mg94_p(P);
+	} else if((mut_model.compare("m-ecm") == 0) || (mut_model.compare("ecm") == 0) ){
 		ecm_p(P);
-		return mcoati(fasta, seq_names, sequences, score, weight_f, output, mut_model, P);
 	} else {
-		return fst_alignment(mut_model, fsts, seq_names, fasta, weight_f, output, sequences);
+		cout << "Mutation models unknown. Exiting!" << endl;
+		return EXIT_FAILURE;
+	}
+
+	vector<string> alignment;
+	float weight;
+	ofstream out_w;
+	// Either score or align input fasta file
+	if(score) {
+		cout << alignment_score(sequences, P) << endl;
+		return EXIT_SUCCESS;
+	} else {
+		if(mut_model.compare("ecm") == 0) {
+			alignment = gotoh(sequences, weight, P);
+		} else {
+			alignment = gotoh_marginal(sequences, weight, P);
+		}
+	}
+
+	// Output weight information
+	if(!weight_f.empty()) {
+		// append weight and fasta file name to file
+		out_w.open(weight_f, ios::app | ios::out);
+		out_w << fasta << "," << mut_model << "," << weight << endl;
+		out_w.close();
+	}
+
+	// Write alignment
+	if(boost::filesystem::extension(output) == ".fasta") {
+		return write_fasta(alignment, output, seq_names);
+	} else {
+		return write_phylip(alignment, output, seq_names);
 	}
 }

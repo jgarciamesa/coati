@@ -18,8 +18,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-set(coati_sources version.cc mut_models.cc utils.cc align.cc)
-set(coati_headers coati.hpp mut_models.hpp utils.hpp align.hpp)
+set(coati_sources version.cc mut_models.cc utils.cc)
+set(coati_headers coati.hpp mut_models.hpp utils.hpp)
 
 #####################################################################
 # libcoati library
@@ -40,7 +40,6 @@ target_link_libraries(libcoati PRIVATE minionrng::minionrng)
 target_link_libraries(libcoati PRIVATE Boost::program_options)
 target_link_libraries(libcoati PRIVATE Boost::filesystem)
 target_link_libraries(libcoati PRIVATE Eigen3::Eigen)
-target_link_libraries(libcoati PRIVATE fst)
 
 set_target_properties(libcoati PROPERTIES OUTPUT_NAME coati)
 
