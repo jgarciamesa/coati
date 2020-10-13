@@ -21,7 +21,7 @@ Codon-Aware Multiple Sequence Alignments
 ## Pairwise Alignment: coati-alignpair
 
 ```
-Usage:	coati-alignpair file.fasta [options]
+Usage:	./build/src/coati-alignpair file.fasta [options]
 
 Allowed options:
   -h [ --help ]                 Display this message
