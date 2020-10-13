@@ -52,5 +52,5 @@ Example input files can be found in `fasta` directory. Sample runs:
 ./build/src/coati-alignpair fasta/ENSG00000005175.fasta -m ecm -w w.out
 
 # Calculate the score of the second alignment with m-coati model
-./build/src/coati-alignpair fasta/ENSG00000003249.fasta -s
+./build/src/coati-alignpair ENSG00000003249.fasta -s
 ```
